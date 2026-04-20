@@ -24,6 +24,25 @@ public class BookDAO {
 
     // ── Update ───────────────────────────────────────────────────
     public void updateBook(Book b) throws SQLException {
+        // First, fetch how many copies are currently issued (cannot change that)
+        int currentlyIssued = 0;
+        String issuedSql = "SELECT (total_qty - available_qty) AS issued FROM books WHERE book_id=?";
+        try (PreparedStatement ps = DatabaseConnection.get().prepareStatement(issuedSql)) {
+            ps.setInt(1, b.getBookId());
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) currentlyIssued = rs.getInt("issued");
+        }
+
+        // New available = new total - currently issued (never negative)
+        int newAvailable = Math.max(0, b.getTotalQty() - currentlyIssued);
+
+        // Validate: new total must not be less than copies already issued
+        if (b.getTotalQty() < currentlyIssued) {
+            throw new SQLException(
+                "Cannot reduce total copies to " + b.getTotalQty()
+                + " — " + currentlyIssued + " copies are currently issued.");
+        }
+
         String sql = "UPDATE books SET isbn=?, title=?, author=?, genre=?, "
                    + "total_qty=?, available_qty=? WHERE book_id=?";
         try (PreparedStatement ps = DatabaseConnection.get().prepareStatement(sql)) {
@@ -32,7 +51,7 @@ public class BookDAO {
             ps.setString(3, b.getAuthor());
             ps.setString(4, b.getGenre());
             ps.setInt   (5, b.getTotalQty());
-            ps.setInt   (6, b.getAvailableQty());
+            ps.setInt   (6, newAvailable);   // ← always recalculated correctly
             ps.setInt   (7, b.getBookId());
             ps.executeUpdate();
         }
